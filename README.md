@@ -39,8 +39,8 @@ clash for linux 备份(备份号：202311091510)。
 - 使用过程中如遇到问题，请优先查已有的 [issues](https://github.com/Elegycloud/clash-for-linux-backup/issues)。
 - 在进行issues提交前，请替换提交内容中是敏感信息（例如：订阅地址）。
 - 本项目是基于 [clash（已跑路）](https://github.com/Dreamacro/clash) 、[yacd](https://github.com/haishanh/yacd) 进行的配置整合，关于clash、yacd的详细配置请去原项目查看。
-- 此项目不提供任何订阅信息，请自行准备Clash订阅地址。
-- 运行前请手动更改`.env`文件中的`CLASH_URL`变量值，否则无法正常运行。
+- 此项目不提供任何订阅信息，请自行准备Clash订阅地址，或准备已导出的 Clash YAML 配置文件。
+- 运行前请手动更改`.env`文件中的`CLASH_URL`或`CLASH_CONFIG_FILE`变量值，二者只能配置一个，否则无法正常运行。
 - 当前在RHEL系列和Debian,Kali Linux,ubuntu以及Linux系统中测试过，其他系列可能需要适当修改脚本。
 - 支持 x86_64/aarch64 平台
 - 【注意：部分带有桌面端Linux系统的需要在浏览器设置代理！否则有可能无法使用！】
@@ -61,7 +61,7 @@ clash for linux 备份(备份号：202311091510)。
 $ git clone https://github.com/Elegycloud/clash-for-linux-backup.git clash-for-linux
 ```
 
-进入到项目目录，编辑`.env`文件，修改变量`CLASH_URL`的值。
+进入到项目目录，编辑`.env`文件，配置 Clash 订阅地址或本地 YAML 文件路径。
 
 ```bash
 $ cd clash-for-linux
@@ -69,6 +69,20 @@ $ vim .env
 ```
 
 > **注意：** `.env` 文件中的变量 `CLASH_SECRET` 为自定义 Clash Secret，值为空时，脚本将自动生成随机字符串。
+
+`.env` 中 `CLASH_URL` 和 `CLASH_CONFIG_FILE` 二选一。使用订阅地址：
+
+```bash
+export CLASH_URL='https://example.com/subscription'
+# export CLASH_CONFIG_FILE='conf/my-clash.yaml'
+```
+
+或使用本地 Clash YAML，支持绝对路径或相对项目目录的路径：
+
+```bash
+export CLASH_URL=''
+export CLASH_CONFIG_FILE='conf/my-clash.yaml'
+```
 
 <br>
 
@@ -99,7 +113,9 @@ Clash订阅地址可访问！                                      [  OK  ]
 Clash Dashboard 访问地址：http://<ip>:9090/ui
 Secret：xxxxxxxxxxxxx
 
-请执行以下命令加载环境变量: source /etc/profile.d/clash.sh
+已配置新终端自动加载 proxy_on / proxy_off 命令
+
+若当前终端需要立即使用，请执行: source /etc/profile.d/clash.sh
 
 请执行以下命令开启系统代理: proxy_on
 
@@ -108,7 +124,6 @@ Secret：xxxxxxxxxxxxx
 ```
 
 ```bash
-$ source /etc/profile.d/clash.sh
 $ proxy_on
 ```
 
@@ -157,7 +172,7 @@ $ cd clash-for-linux
 $ sudo bash shutdown.sh
 ```
 
-服务关闭成功，请执行以下命令关闭系统代理：proxy_off
+服务关闭成功，如当前终端已开启系统代理，请执行：proxy_off
 
 ```bash
 $ proxy_off
