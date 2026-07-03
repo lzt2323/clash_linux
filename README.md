@@ -53,24 +53,27 @@ clash for linux 备份(备份号：202311091510)。
 
 # 使用教程
 
-## 下载项目
+## 快速使用
 
-下载项目
+下载项目并进入目录：
 
 ```bash
-$ git clone https://github.com/Elegycloud/clash-for-linux-backup.git clash-for-linux
+$ git clone https://github.com/lzt2323/clash_linux.git clash-for-linux
+$ cd clash-for-linux
 ```
 
-进入到项目目录，编辑`.env`文件，配置 Clash 订阅地址或本地 YAML 文件路径。
+复制配置模板：
 
 ```bash
-$ cd clash-for-linux
+$ cp .env.example .env
 $ vim .env
 ```
 
-> **注意：** `.env` 文件中的变量 `CLASH_SECRET` 为自定义 Clash Secret，值为空时，脚本将自动生成随机字符串。
+> **注意：** `.env` 是你的私人配置文件，里面可能包含订阅地址、机场节点或 Clash Secret，不会提交到 GitHub。`.env` 文件中的变量 `CLASH_SECRET` 为自定义 Clash Secret，值为空时，脚本将自动生成随机字符串。
 
-`.env` 中 `CLASH_URL` 和 `CLASH_CONFIG_FILE` 二选一。使用订阅地址：
+`.env` 中 `CLASH_URL` 和 `CLASH_CONFIG_FILE` 二选一，不要同时填写。
+
+使用订阅地址：
 
 ```bash
 export CLASH_URL='https://example.com/subscription'
@@ -84,23 +87,35 @@ export CLASH_URL=''
 export CLASH_CONFIG_FILE='conf/my-clash.yaml'
 ```
 
+本地 YAML 文件可以放在项目目录内，也可以使用绝对路径，例如：
+
+```bash
+export CLASH_URL=''
+export CLASH_CONFIG_FILE='/home/user/downloads/clash.yaml'
+```
+
 <br>
 
 ## 启动程序
 
-直接运行脚本文件`start.sh`
-
-- 进入项目目录
+运行启动脚本：
 
 ```bash
 $ cd clash-for-linux
+$ sudo bash start.sh
 ```
 
-- 运行启动脚本
+启动脚本会完成这些操作：
+
+- 从订阅地址下载 Clash 配置，或读取你指定的本地 YAML 文件。
+- 生成最终运行配置 `conf/config.yaml`。
+- 启动当前 CPU 架构对应的 Clash 核心。
+- 写入 `/etc/profile.d/clash.sh`，提供 `proxy_on` 和 `proxy_off` 命令。
+- 自动在当前用户的 `~/.bashrc` 中加载 `/etc/profile.d/clash.sh`，新开的终端可以直接使用 `proxy_on` / `proxy_off`。
+
+启动成功后会看到类似输出：
 
 ```bash
-$ sudo bash start.sh
-
 正在检测订阅地址...
 Clash订阅地址可访问！                                      [  OK  ]
 
@@ -123,7 +138,16 @@ Secret：xxxxxxxxxxxxx
 
 ```
 
+新开的终端可以直接开启系统代理：
+
 ```bash
+$ proxy_on
+```
+
+如果是在执行 `start.sh` 的当前终端里立即使用，当前 shell 还没有重新加载配置，需要执行一次：
+
+```bash
+$ source /etc/profile.d/clash.sh
 $ proxy_on
 ```
 
@@ -145,16 +169,20 @@ http_proxy=http://127.0.0.1:7890
 https_proxy=http://127.0.0.1:7890
 ```
 
-以上步鄹如果正常，说明服务clash程序启动成功，现在就可以体验高速下载github资源了。
+以上步骤如果正常，说明 Clash 服务启动成功。
 
 <br>
 
 ## 重启程序
 
-如果需要对Clash配置进行修改，请修改 `conf/config.yaml` 文件。然后运行 `restart.sh` 脚本进行重启。
+如果只是修改 `conf/config.yaml` 并重启 Clash，运行：
+
+```bash
+$ sudo bash restart.sh
+```
 
 > **注意：**
-> 重启脚本 `restart.sh` 不会更新订阅信息。
+> 重启脚本 `restart.sh` 不会重新读取订阅地址或本地 YAML。需要更新订阅或重新读取 YAML 时，请重新执行 `sudo bash start.sh`。
 
 <br>
 
@@ -172,13 +200,19 @@ $ cd clash-for-linux
 $ sudo bash shutdown.sh
 ```
 
-服务关闭成功，如当前终端已开启系统代理，请执行：proxy_off
+服务关闭成功后，如当前终端已开启系统代理，请执行：
 
 ```bash
 $ proxy_off
 ```
 
 然后检查程序端口、进程以及环境变量`http_proxy|https_proxy`，若都没则说明服务正常关闭。
+
+```bash
+$ ps -ef | grep '[c]lash-linux'
+$ netstat -tln | grep -E '9090|789.'
+$ env | grep -E 'http_proxy|https_proxy'
+```
 
 
 <br>
