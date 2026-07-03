@@ -12,4 +12,3 @@ temp/*
 !temp/templete_config.yaml
 
 clash.yaml
-/image.png

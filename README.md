@@ -223,6 +223,16 @@ $ env | grep -E 'http_proxy|https_proxy'
 
 通过浏览器访问 `start.sh` 执行成功后输出的地址，例如：http://192.168.0.1:9090/ui
 
+如果是在 VS Code 远程开发环境、云服务器、容器或 Notebook 环境里运行本项目，浏览器通常不能直接访问服务器内的 `9090` 端口。需要先在 VS Code 的“端口”面板中添加端口转发，将服务器端口 `9090` 转发到本地。
+
+![VS Code 端口转发 9090](image.png)
+
+端口转发成功后，可以在本地浏览器访问：
+
+```text
+http://localhost:9090/ui
+```
+
 - 登录管理界面
 
 在`API Base URL`一栏中输入：http://\<ip\>:9090 ，在`Secret(optional)`一栏中输入启动成功后输出的Secret。
