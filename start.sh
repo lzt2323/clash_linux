@@ -24,6 +24,10 @@ Conf_Dir="$Server_Dir/conf"
 Temp_Dir="$Server_Dir/temp"
 Log_Dir="$Server_Dir/logs"
 
+# 首次启动时自动创建运行所需目录和日志文件
+mkdir -p "$Conf_Dir" "$Temp_Dir" "$Log_Dir"
+touch "$Log_Dir/clash.log" "$Log_Dir/subconverter.log"
+
 # Clash 配置来源：CLASH_URL 和 CLASH_CONFIG_FILE 二选一
 URL=${CLASH_URL:-}
 Config_File=${CLASH_CONFIG_FILE:-}
@@ -288,6 +292,60 @@ proxy_off(){
 	unset NO_PROXY
 	echo -e "\033[31m[×] 已关闭代理\033[0m"
 }
+
+# Clash 终端管理命令
+clash_ctl() {
+	bash "${Server_Dir}/scripts/clash_proxy-selector.sh" "\$@"
+}
+
+# 统一 CLI 入口：
+# proxy status
+# proxy mode Rule
+# proxy nodes "策略组名"
+# proxy delay "策略组名"
+# proxy set "策略组名" "节点名"
+proxy() {
+	if [ "\$#" -eq 0 ]; then
+		clash_ctl help
+		return
+	fi
+	clash_ctl "\$@"
+}
+
+# 打开终端交互菜单
+proxy_menu() {
+	clash_ctl menu
+}
+
+# 查看当前模式和策略组节点
+proxy_status() {
+	clash_ctl status
+}
+
+# 查看或切换代理模式：proxy_mode / proxy_mode Rule / proxy_mode Global / proxy_mode Direct
+proxy_mode() {
+	clash_ctl mode "\$@"
+}
+
+# 查看策略组：proxy_groups
+proxy_groups() {
+	clash_ctl groups
+}
+
+# 查看节点：proxy_nodes 或 proxy_nodes "策略组名"
+proxy_nodes() {
+	clash_ctl nodes "\$@"
+}
+
+# 测试节点延迟：proxy_delay 或 proxy_delay "策略组名"
+proxy_delay() {
+	clash_ctl delay "\$@"
+}
+
+# 切换节点：proxy_set "策略组名" "节点名"
+proxy_set() {
+	clash_ctl set "\$@"
+}
 EOF
 
 install_proxy_helper_autoload
@@ -316,3 +374,5 @@ echo -e "已配置新终端自动加载 proxy_on / proxy_off 命令\n"
 echo -e "若当前终端需要立即使用，请执行: source /etc/profile.d/clash.sh\n"
 echo -e "请执行以下命令开启系统代理: proxy_on\n"
 echo -e "若要临时关闭系统代理，请执行: proxy_off\n"
+echo -e "终端 Clash CLI: proxy status / proxy delay \"策略组名\" / proxy set \"策略组名\" \"节点名\"\n"
+echo -e "终端切换节点菜单: proxy menu\n"

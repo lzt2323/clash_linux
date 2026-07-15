@@ -1,108 +1,441 @@
-#!/bin/bash
+#!/usr/bin/env bash
 
-# Clash API地址
-api_url="http://localhost:9090"
-Secret="填写Clash Secret"
+set -u
 
-# 获取Clash代理节点列表
-get_proxy_list() {
-    # 使用您的命令获取代理节点列表
-    proxies=$(curl -s -XGET -H "Content-Type: application/json" -H "Authorization: Bearer ${Secret}" $api_url/proxies | jq -r '.proxies.GLOBAL.all[]')
-}
+Server_Dir=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
+api_url="${CLASH_API_URL:-http://127.0.0.1:9090}"
+config_file="${CLASH_CONFIG_PATH:-${Server_Dir}/conf/config.yaml}"
 
-# 获取Clash代理模式列表
-get_mode_list() {
-    # 使用您的命令获取代理模式列表，例如：
-    # modes=$(your_command_to_get_mode_list)
-    # 将代理模式列表保存到变量modes中
-    modes=("Global" "Rule")
-}
-
-# 显示菜单选项
-show_menu() {
-    echo "========== Clash代理配置 =========="
-    echo "1. 选择代理模式"
-    echo "2. 选择代理节点"
-    echo "3. 退出"
-    echo "==================================="
-}
-
-# 选择代理节点
-select_proxy() {
-    local mode=$1
-    if [ -z $mode ]; then
-	mode="Proxy"
+load_secret() {
+    if [[ -n "${CLASH_SECRET:-}" ]]; then
+        printf '%s' "$CLASH_SECRET"
+        return
     fi
-    get_proxy_list
-    echo "========== 代理节点列表 =========="
-    i=0
-    for proxy in $proxies; do
-        echo "$i. $proxy"
-        i=$((i+1))
-    done
-    echo "==================================="
-    read -p "请选择代理节点（输入编号）：" proxy_index
-    proxy=$(echo "$proxies" | sed -n "${proxy_index}p")
-    if [[ -n $proxy ]]; then
-        # 更新Clash的代理节点设置
-        curl -X PUT -s "$api_url/proxies/$mode" -H "Content-Type: application/json" -H "Authorization: Bearer ${Secret}" --data "{\"name\":\"$proxy\"}" > /dev/null
-	
-        echo "代理节点已更新为：$proxy"
-    else
-        echo "无效的选择！"
+
+    if [[ -r "$config_file" ]]; then
+        sed -n "s/^[[:space:]]*secret:[[:space:]]*['\"]\\{0,1\\}\\([^'\"]*\\)['\"]\\{0,1\\}[[:space:]]*$/\\1/p" "$config_file" | head -n 1
     fi
 }
 
-# 选择代理模式
-select_mode() {
-    get_mode_list
-    echo "========== 代理模式列表 =========="
-    i=1
-    #for mode in $modes; do
-    for mode in ${modes[@]}; do
-        echo "$i. $mode"
-        i=$((i+1))
-    done
-    echo "==================================="
-    read -p "请选择代理模式（输入编号）：" mode_index
-    mode=$(echo "${modes[$(($mode_index -1))]}") 
-    if [[ -n $mode ]]; then
-        # 更新Clash的代理模式设置
-        curl -XPATCH -s "$api_url/configs" -H "Content-Type: application/json" -H "Authorization: Bearer ${Secret}" -d '{"mode":"'"${mode}"'"}' > /dev/null
-        echo "代理模式已更新为：$mode"
+Secret=$(load_secret)
 
-        # 根据新的代理模式更新节点配置
-        update_nodes "$mode"
-    else
-        echo "无效的选择！"
+auth_args=()
+if [[ -n "$Secret" ]]; then
+    auth_args=(-H "Authorization: Bearer ${Secret}")
+fi
+
+require_cmd() {
+    if ! command -v "$1" >/dev/null 2>&1; then
+        echo "缺少依赖命令：$1"
+        exit 1
     fi
 }
 
-update_nodes() {
-    local mode=$1
-    if [ $mode == "Rule" ]; then
-    	mode=Proxy
-	select_proxy $mode
-    fi
-    if [ $mode == "Global" ]; then
-    	mode=GLOBAL
-	select_proxy $mode
-    fi
-    # 根据代理模式更新节点配置
-    # TODO: 根据实际需求进行更新节点配置的操作
-    echo "已根据代理模式 $mode 更新节点配置"
+api_get() {
+    curl --noproxy 127.0.0.1,localhost -fsS "${auth_args[@]}" "$api_url/$1"
 }
 
-# 主程序
-while true; do
-    show_menu
-    read -p "请选择操作（输入编号）：" choice
-    case $choice in
-        1) select_mode;;
-        2) select_proxy;;
-        3) break;;
-        *) echo "无效的选择！";;
-    esac
+api_patch() {
+    curl --noproxy 127.0.0.1,localhost -fsS -XPATCH "${auth_args[@]}" -H "Content-Type: application/json" "$api_url/$1" -d "$2" >/dev/null
+}
+
+api_put() {
+    curl --noproxy 127.0.0.1,localhost -fsS -XPUT "${auth_args[@]}" -H "Content-Type: application/json" "$api_url/$1" -d "$2" >/dev/null
+}
+
+urlencode() {
+    jq -nr --arg v "$1" '$v|@uri'
+}
+
+read_choice() {
+    local prompt=$1
+    local max=$2
+    local choice
+
+    read -r -p "$prompt" choice
+    if ! [[ "$choice" =~ ^[0-9]+$ ]] || (( choice < 1 || choice > max )); then
+        echo "无效的选择！" >&2
+        return 1
+    fi
+
+    printf '%s' "$choice"
+}
+
+get_proxies_json() {
+    local response
+    if ! response=$(api_get "proxies"); then
+        echo "无法连接 Clash API：$api_url" >&2
+        echo "请确认 Clash 已启动，external-controller 为 9090，并且 secret 正确。" >&2
+        return 1
+    fi
+    printf '%s' "$response"
+}
+
+usage() {
+    cat <<'EOF'
+用法:
+  clash_proxy-selector.sh                 打开交互菜单
+  clash_proxy-selector.sh menu            打开交互菜单
+  clash_proxy-selector.sh status          查看当前模式和策略组节点
+  clash_proxy-selector.sh mode [模式]     查看或切换模式：Rule / Global / Direct
+  clash_proxy-selector.sh groups          列出可切换策略组
+  clash_proxy-selector.sh nodes [策略组]  列出策略组节点
+  clash_proxy-selector.sh delay [策略组]  测试策略组内节点延迟
+  clash_proxy-selector.sh set <策略组> <节点名>
+                                      切换指定策略组到指定节点
+
+环境变量:
+  CLASH_API_URL       Clash API 地址，默认 http://127.0.0.1:9090
+  CLASH_SECRET        Clash API Secret，默认从 conf/config.yaml 读取
+  CLASH_DELAY_URL     测速 URL，默认 http://www.gstatic.com/generate_204
+  CLASH_DELAY_TIMEOUT 测速超时毫秒，默认 5000
+  CLASH_DELAY_PARALLEL 测速并发数，默认 8
+EOF
+}
+
+show_status() {
+    local config_json proxies_json
+
+    config_json=$(api_get "configs") || {
+        echo "无法读取当前 Clash 配置。"
+        return 1
+    }
+    proxies_json=$(get_proxies_json) || return 1
+
+    echo "========== 当前状态 =========="
+    echo "模式：$(jq -r '.mode // "unknown"' <<<"$config_json")"
     echo
-done
+    jq -r '
+        .proxies
+        | to_entries[]
+        | select(.value.all and (.value.all | length > 0))
+        | "\(.key): \(.value.now // "-")"
+    ' <<<"$proxies_json"
+    echo "=============================="
+}
 
+normalize_mode() {
+    case "$1" in
+        [Rr]ule) printf 'Rule' ;;
+        [Gg]lobal) printf 'Global' ;;
+        [Dd]irect) printf 'Direct' ;;
+        *) return 1 ;;
+    esac
+}
+
+set_mode() {
+    local mode=$1
+
+    if ! mode=$(normalize_mode "$mode"); then
+        echo "无效模式：$1，可用模式：Rule / Global / Direct"
+        return 1
+    fi
+
+    if api_patch "configs" "{\"mode\":\"${mode}\"}"; then
+        echo "代理模式已更新为：$mode"
+    else
+        echo "代理模式更新失败。"
+        return 1
+    fi
+}
+
+select_mode() {
+    local modes=("Rule" "Global" "Direct")
+    local i mode_index mode
+
+    echo "========== 代理模式 =========="
+    for i in "${!modes[@]}"; do
+        printf "%d. %s\n" "$((i + 1))" "${modes[$i]}"
+    done
+    echo "=============================="
+
+    mode_index=$(read_choice "请选择代理模式（输入编号）：" "${#modes[@]}") || return
+    mode="${modes[$((mode_index - 1))]}"
+
+    set_mode "$mode"
+}
+
+list_groups() {
+    local proxies_json i current
+
+    proxies_json=$(get_proxies_json) || return
+    mapfile -t groups < <(
+        jq -r '
+            .proxies
+            | to_entries[]
+            | select(.value.all and (.value.all | length > 0))
+            | .key
+        ' <<<"$proxies_json"
+    )
+
+    if (( ${#groups[@]} == 0 )); then
+        echo "没有找到可选择的策略组。"
+        return 1
+    fi
+
+    for i in "${!groups[@]}"; do
+        current=$(jq -r --arg group "${groups[$i]}" '.proxies[$group].now // "-"' <<<"$proxies_json")
+        printf "%d. %s 当前：%s\n" "$((i + 1))" "${groups[$i]}" "$current"
+    done
+}
+
+list_nodes() {
+    local group=${1:-}
+    local proxies_json current i
+
+    proxies_json=$(get_proxies_json) || return
+    if [[ -z "$group" ]]; then
+        selected_group=""
+        select_group "$proxies_json" || return
+        group=$selected_group
+    fi
+
+    if ! jq -e --arg group "$group" '.proxies[$group].all and (.proxies[$group].all | length > 0)' <<<"$proxies_json" >/dev/null; then
+        echo "未找到策略组或该策略组不可切换：$group"
+        return 1
+    fi
+
+    current=$(jq -r --arg group "$group" '.proxies[$group].now // "-"' <<<"$proxies_json")
+    mapfile -t nodes < <(jq -r --arg group "$group" '.proxies[$group].all[]' <<<"$proxies_json")
+
+    for i in "${!nodes[@]}"; do
+        if [[ "${nodes[$i]}" == "$current" ]]; then
+            printf "%d. %s *\n" "$((i + 1))" "${nodes[$i]}"
+        else
+            printf "%d. %s\n" "$((i + 1))" "${nodes[$i]}"
+        fi
+    done
+}
+
+set_proxy_by_name() {
+    local group=$1
+    local node=$2
+    local proxies_json encoded_group payload
+
+    proxies_json=$(get_proxies_json) || return
+    if ! jq -e --arg group "$group" --arg node "$node" '.proxies[$group].all | index($node)' <<<"$proxies_json" >/dev/null; then
+        echo "未找到策略组或节点：$group -> $node"
+        return 1
+    fi
+
+    encoded_group=$(urlencode "$group")
+    payload=$(jq -cn --arg name "$node" '{name:$name}')
+
+    if api_put "proxies/${encoded_group}" "$payload"; then
+        echo "策略组 ${group} 已切换为：${node}"
+    else
+        echo "节点切换失败。"
+        return 1
+    fi
+}
+
+write_delay_results() {
+    local tmp_dir=$1
+    shift
+
+    local delay_url=${CLASH_DELAY_URL:-http://www.gstatic.com/generate_204}
+    local timeout=${CLASH_DELAY_TIMEOUT:-5000}
+    local parallel=${CLASH_DELAY_PARALLEL:-8}
+    local encoded_delay_url node encoded_node response delay i running
+
+    if ! [[ "$parallel" =~ ^[0-9]+$ ]] || (( parallel < 1 )); then
+        parallel=8
+    fi
+
+    encoded_delay_url=$(urlencode "$delay_url")
+
+    for i in "${!nodes[@]}"; do
+        node=${nodes[$i]}
+        (
+            encoded_node=$(urlencode "$node")
+            if response=$(api_get "proxies/${encoded_node}/delay?timeout=${timeout}&url=${encoded_delay_url}" 2>/dev/null); then
+                delay=$(jq -r '.delay // empty' <<<"$response")
+                if [[ -n "$delay" ]]; then
+                    printf "%s" "${delay}ms"
+                else
+                    printf "%s" "失败"
+                fi
+            else
+                printf "%s" "超时"
+            fi > "${tmp_dir}/${i}"
+        ) &
+
+        while true; do
+            running=$(jobs -pr | wc -l)
+            (( running < parallel )) && break
+            sleep 0.05
+        done
+    done
+
+    wait
+}
+
+show_delay() {
+    local group=${1:-}
+    local delay_url=${2:-}
+    local proxies_json current node delay
+    local tmp_dir i
+
+    proxies_json=$(get_proxies_json) || return
+    if [[ -z "$group" ]]; then
+        selected_group=""
+        select_group "$proxies_json" || return
+        group=$selected_group
+    fi
+
+    if [[ -n "$delay_url" ]]; then
+        CLASH_DELAY_URL="$delay_url"
+    fi
+
+    if ! jq -e --arg group "$group" '.proxies[$group].all and (.proxies[$group].all | length > 0)' <<<"$proxies_json" >/dev/null; then
+        echo "未找到策略组或该策略组不可测速：$group"
+        return 1
+    fi
+
+    current=$(jq -r --arg group "$group" '.proxies[$group].now // "-"' <<<"$proxies_json")
+    mapfile -t nodes < <(jq -r --arg group "$group" '.proxies[$group].all[]' <<<"$proxies_json")
+    tmp_dir=$(mktemp -d)
+
+    echo "========== ${group} 节点延迟 =========="
+    write_delay_results "$tmp_dir" "${nodes[@]}"
+
+    for i in "${!nodes[@]}"; do
+        delay=$(cat "${tmp_dir}/${i}")
+        if [[ "${nodes[$i]}" == "$current" ]]; then
+            printf "%-8s %s *\n" "$delay" "${nodes[$i]}"
+        else
+            printf "%-8s %s\n" "$delay" "${nodes[$i]}"
+        fi
+    done
+
+    rm -rf "$tmp_dir"
+    echo "======================================"
+}
+
+select_group() {
+    local proxies_json=$1
+    local i current group_index
+
+    mapfile -t groups < <(
+        jq -r '
+            .proxies
+            | to_entries[]
+            | select(.value.all and (.value.all | length > 0))
+            | .key
+        ' <<<"$proxies_json"
+    )
+
+    if (( ${#groups[@]} == 0 )); then
+        echo "没有找到可选择的策略组。"
+        return 1
+    fi
+
+    echo "========== 策略组 =========="
+    for i in "${!groups[@]}"; do
+        current=$(jq -r --arg group "${groups[$i]}" '.proxies[$group].now // "-"' <<<"$proxies_json")
+        printf "%d. %s 当前：%s\n" "$((i + 1))" "${groups[$i]}" "$current"
+    done
+    echo "============================"
+
+    group_index=$(read_choice "请选择策略组（输入编号）：" "${#groups[@]}") || return 1
+    selected_group="${groups[$((group_index - 1))]}"
+}
+
+select_proxy() {
+    local proxies_json selected_group current node_index selected_node encoded_group payload i delay tmp_dir
+
+    proxies_json=$(get_proxies_json) || return
+    selected_group=""
+    select_group "$proxies_json" || return
+
+    mapfile -t nodes < <(jq -r --arg group "$selected_group" '.proxies[$group].all[]' <<<"$proxies_json")
+    current=$(jq -r --arg group "$selected_group" '.proxies[$group].now // "-"' <<<"$proxies_json")
+    tmp_dir=$(mktemp -d)
+
+    echo "正在测试 ${selected_group} 节点延迟..."
+    write_delay_results "$tmp_dir" "${nodes[@]}"
+
+    echo "========== ${selected_group} 节点 =========="
+    for i in "${!nodes[@]}"; do
+        delay=$(cat "${tmp_dir}/${i}")
+        if [[ "${nodes[$i]}" == "$current" ]]; then
+            printf "%d. %-8s %s *\n" "$((i + 1))" "$delay" "${nodes[$i]}"
+        else
+            printf "%d. %-8s %s\n" "$((i + 1))" "$delay" "${nodes[$i]}"
+        fi
+    done
+    echo "==========================================="
+    rm -rf "$tmp_dir"
+
+    node_index=$(read_choice "请选择代理节点（输入编号）：" "${#nodes[@]}") || return
+    selected_node="${nodes[$((node_index - 1))]}"
+    encoded_group=$(urlencode "$selected_group")
+    payload=$(jq -cn --arg name "$selected_node" '{name:$name}')
+
+    if api_put "proxies/${encoded_group}" "$payload"; then
+        echo "策略组 ${selected_group} 已切换为：${selected_node}"
+    else
+        echo "节点切换失败。"
+    fi
+}
+
+show_menu() {
+    echo "========== Clash 代理配置 =========="
+    echo "1. 查看当前状态"
+    echo "2. 选择代理模式（Rule / Global / Direct）"
+    echo "3. 选择策略组节点"
+    echo "4. 测试节点延迟"
+    echo "5. 退出"
+    echo "===================================="
+}
+
+interactive_menu() {
+    while true; do
+        show_menu
+        read -r -p "请选择操作（输入编号）：" choice
+        case "$choice" in
+            1) show_status ;;
+            2) select_mode ;;
+            3) select_proxy ;;
+            4) show_delay ;;
+            5) break ;;
+            *) echo "无效的选择！" ;;
+        esac
+        echo
+    done
+}
+
+main() {
+    require_cmd curl
+    require_cmd jq
+
+    case "${1:-menu}" in
+        menu) interactive_menu ;;
+        status) show_status ;;
+        mode)
+            if [[ $# -eq 1 ]]; then
+                api_get "configs" | jq -r '.mode // "unknown"'
+            else
+                set_mode "$2"
+            fi
+            ;;
+        groups) list_groups ;;
+        nodes) list_nodes "${2:-}" ;;
+        delay) show_delay "${2:-}" "${3:-}" ;;
+        set|switch)
+            if [[ $# -lt 3 ]]; then
+                echo "用法：$0 set <策略组> <节点名>"
+                return 1
+            fi
+            set_proxy_by_name "$2" "$3"
+            ;;
+        -h|--help|help) usage ;;
+        *)
+            echo "未知命令：$1"
+            usage
+            return 1
+            ;;
+    esac
+}
+
+main "$@"
