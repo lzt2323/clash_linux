@@ -36,13 +36,13 @@ tips：新开终端直接使用 proxy_on / proxy_off 就能控制代理开关，
   <img src="asserts/image.png" alt="image.png">
 </p>
 
-1. 访问本地端口 [localhost:9090/ui](http://localhost:9090/ui) 输入url和secret
+2. 访问本地端口 [localhost:9090/ui](http://localhost:9090/ui) 输入url和secret
 
 <p align="center">
   <img src="asserts/image%201.png" alt="image.png">
 </p>
 
-1. 进入面板
+3. 进入面板
 
 <p align="center">
   <img src="asserts/image%202.png" alt="image.png">
