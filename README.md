@@ -1,4 +1,4 @@
-# clash linux
+# clash_linux
 
 <p align="center">
   <img src="asserts/clash_linux.png" alt="image.png">
