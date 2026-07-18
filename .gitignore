@@ -11,4 +11,4 @@ log/*
 temp/*
 !temp/templete_config.yaml
 
-clash.yaml
+my-clash.yaml
